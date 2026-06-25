@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { supabase, fetchCurrentRankings } from '@/lib/supabase'
-import { QUESTIONS } from '@/lib/questions'
+import { QUESTIONS, SELECTED_COUNT } from '@/lib/questions'
 import type { RankEntry } from '@/lib/supabase'
 
 export default function RankingPage() {
@@ -13,6 +13,7 @@ export default function RankingPage() {
   const [myNickname, setMyNickname] = useState('')
   const [isFinished, setIsFinished] = useState(false)
   const [showTop3, setShowTop3] = useState(false)
+  const [playedQuestions, setPlayedQuestions] = useState<typeof QUESTIONS>([QUESTIONS[0]])
 
   async function loadRankings() {
     setRankings(await fetchCurrentRankings())
@@ -24,10 +25,14 @@ export default function RankingPage() {
 
     async function init() {
       await loadRankings()
-      const { data: gs } = await supabase.from('game_state').select('status').eq('id', 1).single()
+      const { data: gs } = await supabase.from('game_state').select('status, question_ids').eq('id', 1).single()
       const finished = gs?.status === 'finished'
       setIsFinished(finished)
       if (finished) setTimeout(() => setShowTop3(true), 400)
+      if (gs?.question_ids?.length) {
+        setPlayedQuestions(QUESTIONS.filter(q => gs.question_ids!.includes(q.id))
+          .sort((a, b) => gs.question_ids!.indexOf(a.id) - gs.question_ids!.indexOf(b.id)))
+      }
     }
     init()
 
@@ -118,7 +123,7 @@ export default function RankingPage() {
                   style={{ height: '6.5rem' }}>
                   <p className="font-black text-xs truncate" style={{ color: '#FFB300' }}>{top3[0].nickname}</p>
                   <p className="font-black text-base" style={{ color: '#FFB300' }}>{top3[0].total_points}점</p>
-                  <p className="text-white/40 text-xs">{top3[0].correct_count}/{QUESTIONS.length} 정답</p>
+                  <p className="text-white/40 text-xs">{top3[0].correct_count}/{SELECTED_COUNT} 정답</p>
                 </div>
               </div>
             )}
@@ -170,7 +175,7 @@ export default function RankingPage() {
                       <p className="font-bold text-sm truncate" style={{ color: isMe ? '#FFB300' : 'rgba(255,255,255,0.85)' }}>
                         {entry.nickname}{isMe && ' 👈'}
                       </p>
-                      <p className="text-white/30 text-xs">{entry.correct_count}/{QUESTIONS.length} 정답</p>
+                      <p className="text-white/30 text-xs">{entry.correct_count}/{SELECTED_COUNT} 정답</p>
                     </div>
                     <p className="font-black text-base shrink-0 ml-2"
                       style={{ color: rank <= 3 ? '#FFB300' : 'rgba(255,255,255,0.6)' }}>
@@ -189,7 +194,7 @@ export default function RankingPage() {
             style={{ background: 'rgba(255,255,255,0.07)' }}>
             <p className="font-bold text-sm mb-3" style={{ color: '#FFB300' }}>문제 정답 해설</p>
             <div className="space-y-3">
-              {QUESTIONS.map((q) => (
+              {playedQuestions.map((q) => (
                 <div key={q.id} className="flex items-start gap-2">
                   <span className={`shrink-0 text-xs font-black px-2 py-0.5 rounded-full mt-0.5
                     ${q.answer === 'O' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`}>

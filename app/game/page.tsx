@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import { supabase, fetchCurrentRankings } from '@/lib/supabase'
-import { QUESTIONS, QUESTION_TIME_MS, calcPoints } from '@/lib/questions'
+import { QUESTIONS, SELECTED_COUNT, QUESTION_TIME_MS, calcPoints } from '@/lib/questions'
 import type { GameState, RankEntry } from '@/lib/supabase'
 
 type Phase = 'waiting' | 'question' | 'waiting_reveal' | 'revealing' | 'finished'
@@ -29,6 +29,7 @@ export default function GamePage() {
   const [nickname, setNickname] = useState('')
   const [sessionId, setSessionId] = useState('')
   const [rankings, setRankings] = useState<RankEntry[]>([])
+  const [questionIds, setQuestionIds] = useState<number[]>([])
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const questionStartRef = useRef<number>(0)
@@ -90,6 +91,7 @@ export default function GamePage() {
 
       if (gs.status === 'question' && gs.question_started_at) {
         setCurrentQuestion(gs.current_question)
+        if (gs.question_ids) setQuestionIds(gs.question_ids)
 
         // 내 누적 점수 복원
         const { data: myPrev } = await supabase.from('answers').select('points').eq('session_id', sId)
@@ -143,6 +145,7 @@ export default function GamePage() {
         }
         if (gs.status === 'question' && gs.question_started_at) {
           setCurrentQuestion(gs.current_question)
+          if (gs.question_ids) setQuestionIds(gs.question_ids)
           startTimer(gs.question_started_at, gs.current_question, sId, nick)
         }
       })
@@ -167,7 +170,10 @@ export default function GamePage() {
     })
   }
 
-  const q = currentQuestion >= 1 ? QUESTIONS[currentQuestion - 1] : null
+  const totalQ = questionIds.length || SELECTED_COUNT
+  const q = currentQuestion >= 1 && questionIds.length > 0
+    ? QUESTIONS.find(q => q.id === questionIds[currentQuestion - 1]) ?? null
+    : null
   const timerRatio = timeLeft / QUESTION_TIME_MS
   const strokeDashoffset = CIRCUMFERENCE * (1 - timerRatio)
   const timerColor = timerRatio > 0.5 ? '#4ade80' : timerRatio > 0.25 ? '#FFB300' : '#EF4444'
@@ -193,7 +199,7 @@ export default function GamePage() {
         <span className="font-black text-sm text-white/80">{nickname}</span>
         {currentQuestion > 0 && (
           <div className="flex items-center gap-3 text-xs text-blue-300">
-            <span>{currentQuestion}/{QUESTIONS.length}</span>
+            <span>{currentQuestion}/{totalQ}</span>
             {phase === 'revealing' && (
               <>
                 <span className="font-bold" style={{ color: '#FFB300' }}>{totalScore}점</span>
@@ -209,7 +215,7 @@ export default function GamePage() {
         <div className="px-4 mb-3">
           <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
             <div className="h-full bg-yellow-400 rounded-full transition-all duration-500"
-              style={{ width: `${(currentQuestion / QUESTIONS.length) * 100}%` }} />
+              style={{ width: `${(currentQuestion / totalQ) * 100}%` }} />
           </div>
         </div>
       )}
@@ -255,7 +261,7 @@ export default function GamePage() {
             </div>
 
             <p className="text-sm font-bold mb-2 text-center" style={{ color: '#FFB300' }}>
-              Q{currentQuestion} / {QUESTIONS.length}
+              Q{currentQuestion} / {totalQ}
             </p>
 
             <div className="rounded-2xl p-5 mb-5 pop-in"
@@ -350,44 +356,39 @@ export default function GamePage() {
               </div>
             </div>
 
-            {/* 내 순위 */}
-            {myRank > 0 && (
-              <div className="rounded-2xl px-5 py-5 mb-4 text-center pop-in"
-                style={{ background: 'rgba(255,179,0,0.15)', border: '2px solid rgba(255,179,0,0.5)' }}>
-                <p className="text-xs font-semibold mb-1" style={{ color: 'rgba(255,179,0,0.7)' }}>현재 내 순위</p>
-                <p className="font-black" style={{ color: '#FFB300', fontSize: '3.5rem', lineHeight: 1 }}>{myRank}위</p>
-                <p className="text-white/50 text-xs mt-1">총 {totalScore}점</p>
-              </div>
-            )}
-
-            {/* 전체 순위 */}
+            {/* TOP 3 */}
             {rankings.length > 0 && (
               <div className="rounded-2xl overflow-hidden mb-4"
                 style={{ border: '1px solid rgba(255,255,255,0.1)' }}>
                 <div className="px-4 py-2" style={{ background: 'rgba(255,255,255,0.07)' }}>
-                  <p className="text-xs font-bold text-white/50">전체 순위</p>
+                  <p className="text-xs font-bold text-white/50">🏆 TOP 3</p>
                 </div>
-                {rankings.slice(0, 10).map((r, i) => {
-                  const isMe = r.nickname === nickname
-                  return (
-                    <div key={r.nickname}
-                      className="flex items-center gap-3 px-4 py-2.5 border-b border-white/5 last:border-0"
-                      style={{ background: isMe ? 'rgba(255,179,0,0.12)' : '' }}>
-                      <span className="w-6 text-center shrink-0 text-sm">
-                        {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉'
-                          : <span className="text-white/30 font-bold">{i + 1}</span>}
-                      </span>
-                      <span className="flex-1 truncate text-sm font-medium"
-                        style={{ color: isMe ? '#FFB300' : 'rgba(255,255,255,0.85)' }}>
-                        {r.nickname}{isMe && ' 👈'}
-                      </span>
-                      <span className="font-black text-sm"
-                        style={{ color: isMe ? '#FFB300' : 'rgba(255,255,255,0.6)' }}>
-                        {r.total_points}점
-                      </span>
-                    </div>
-                  )
-                })}
+                {rankings.slice(0, 3).map((r, i) => (
+                  <div key={r.nickname}
+                    className="flex items-center gap-3 px-4 py-2.5 border-b border-white/5 last:border-0"
+                    style={{ background: i === 0 ? 'rgba(255,215,0,0.1)' : i === 1 ? 'rgba(192,192,192,0.07)' : 'rgba(205,127,50,0.07)' }}>
+                    <span className="w-6 text-center shrink-0 text-base">
+                      {i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}
+                    </span>
+                    <span className="flex-1 truncate text-sm font-bold text-white/90">{r.nickname}</span>
+                    <span className="font-black text-sm text-white/70">{r.total_points}점</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 내 순위 */}
+            {myRank > 0 && (
+              <div className="rounded-2xl px-5 py-4 mb-4 flex items-center gap-4 pop-in"
+                style={{ background: 'rgba(255,179,0,0.15)', border: '2px solid rgba(255,179,0,0.5)' }}>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold mb-0.5" style={{ color: 'rgba(255,179,0,0.7)' }}>내 순위</p>
+                  <p className="font-black text-white/80 text-sm">{nickname}</p>
+                </div>
+                <div className="text-right">
+                  <p className="font-black" style={{ color: '#FFB300', fontSize: '2.5rem', lineHeight: 1 }}>{myRank}위</p>
+                  <p className="text-white/40 text-xs">{totalScore}점</p>
+                </div>
               </div>
             )}
 

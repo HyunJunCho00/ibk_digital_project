@@ -13,6 +13,7 @@ export interface GameState {
   current_question: number
   question_started_at: string | null
   answer_revealed: boolean
+  question_ids: number[] | null
 }
 
 export interface Answer {

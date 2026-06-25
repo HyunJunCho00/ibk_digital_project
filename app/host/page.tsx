@@ -3,7 +3,16 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { supabase, fetchCurrentRankings } from '@/lib/supabase'
-import { QUESTIONS, QUESTION_TIME_MS } from '@/lib/questions'
+import { QUESTIONS, SELECTED_COUNT, QUESTION_TIME_MS } from '@/lib/questions'
+
+function pickRandomIds(): number[] {
+  const ids = QUESTIONS.map(q => q.id)
+  for (let i = ids.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[ids[i], ids[j]] = [ids[j], ids[i]]
+  }
+  return ids.slice(0, SELECTED_COUNT)
+}
 import type { GameState, RankEntry } from '@/lib/supabase'
 import { Suspense } from 'react'
 
@@ -90,12 +99,14 @@ function HostPanel() {
 
   async function handleStart() {
     setAdvancing(true)
+    const questionIds = pickRandomIds()
     await supabase.from('answers').delete().not('id', 'is', null)
     await supabase.from('game_state').update({
       status: 'question',
       current_question: 1,
       question_started_at: new Date().toISOString(),
       answer_revealed: false,
+      question_ids: questionIds,
     }).eq('id', 1)
     setAdvancing(false)
   }
@@ -110,7 +121,8 @@ function HostPanel() {
     if (!gameState) return
     setAdvancing(true)
     const nextQ = gameState.current_question + 1
-    if (nextQ > QUESTIONS.length) {
+    const totalQ = gameState.question_ids?.length ?? SELECTED_COUNT
+    if (nextQ > totalQ) {
       await supabase.from('game_state').update({ status: 'finished' }).eq('id', 1)
     } else {
       await supabase.from('game_state').update({
@@ -133,6 +145,7 @@ function HostPanel() {
       current_question: 0,
       question_started_at: null,
       answer_revealed: false,
+      question_ids: null,
     }).eq('id', 1)
     setParticipantCount(0)
     setAnswerStats({ o_count: 0, x_count: 0, timeout_count: 0, total: 0 })
@@ -151,7 +164,11 @@ function HostPanel() {
   }
 
   const currentQ = gameState?.current_question ?? 0
-  const q = currentQ >= 1 ? QUESTIONS[currentQ - 1] : null
+  const questionIds = gameState?.question_ids ?? []
+  const q = currentQ >= 1 && questionIds.length > 0
+    ? QUESTIONS.find(q => q.id === questionIds[currentQ - 1]) ?? null
+    : null
+  const totalQ = questionIds.length || SELECTED_COUNT
   const answerRate = participantCount > 0 ? Math.round((answerStats.total / participantCount) * 100) : 0
 
   return (
@@ -182,36 +199,44 @@ function HostPanel() {
             <span className="font-semibold text-gray-700">
               {!gameState && '연결 중...'}
               {gameState?.status === 'waiting' && '대기 중 — 참가자를 모아주세요'}
-              {gameState?.status === 'question' && `문제 ${currentQ} / ${QUESTIONS.length} 진행 중`}
+              {gameState?.status === 'question' && `문제 ${currentQ} / ${totalQ} 진행 중`}
               {gameState?.status === 'finished' && '게임 종료'}
             </span>
           </div>
 
           {/* 문제 목록 */}
-          <div className="space-y-2 mb-5">
-            {QUESTIONS.map((question, i) => {
-              const qNum = i + 1
-              const isDone = currentQ > qNum || gameState?.status === 'finished'
-              const isCurrent = currentQ === qNum && gameState?.status === 'question'
-              return (
-                <div key={qNum} className={`flex items-center gap-3 p-3 rounded-xl text-sm
-                  ${isCurrent ? 'bg-green-50 border-2 border-green-500' :
-                    isDone ? 'bg-gray-50' : 'bg-gray-50 opacity-40'}`}>
-                  <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0
-                    ${isCurrent ? 'bg-green-500 text-white' :
-                      isDone ? 'bg-gray-400 text-white' : 'bg-gray-200 text-gray-500'}`}>
-                    {isDone ? '✓' : qNum}
-                  </span>
-                  <span className={`flex-1 truncate ${isCurrent ? 'text-green-800 font-semibold' : 'text-gray-600'}`}>
-                    {question.question}
-                  </span>
-                  <span className={`ml-auto shrink-0 font-bold ${question.answer === 'O' ? 'text-green-600' : 'text-red-500'}`}>
-                    {question.answer}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
+          {gameState?.status === 'waiting' ? (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-5 text-center">
+              <p className="text-blue-700 font-bold text-sm">🎲 게임 시작 시 10개 문제 중 5개가 무작위로 선택됩니다</p>
+            </div>
+          ) : (
+            <div className="space-y-2 mb-5">
+              {questionIds.map((id, i) => {
+                const question = QUESTIONS.find(q => q.id === id)
+                if (!question) return null
+                const qNum = i + 1
+                const isDone = currentQ > qNum || gameState?.status === 'finished'
+                const isCurrent = currentQ === qNum && gameState?.status === 'question'
+                return (
+                  <div key={id} className={`flex items-center gap-3 p-3 rounded-xl text-sm
+                    ${isCurrent ? 'bg-green-50 border-2 border-green-500' :
+                      isDone ? 'bg-gray-50' : 'bg-gray-50 opacity-40'}`}>
+                    <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0
+                      ${isCurrent ? 'bg-green-500 text-white' :
+                        isDone ? 'bg-gray-400 text-white' : 'bg-gray-200 text-gray-500'}`}>
+                      {isDone ? '✓' : qNum}
+                    </span>
+                    <span className={`flex-1 truncate ${isCurrent ? 'text-green-800 font-semibold' : 'text-gray-600'}`}>
+                      {question.question}
+                    </span>
+                    <span className={`ml-auto shrink-0 font-bold ${question.answer === 'O' ? 'text-green-600' : 'text-red-500'}`}>
+                      {question.answer}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
 
           {/* 실시간 응답 현황 */}
           {gameState?.status === 'question' && q && (
@@ -259,7 +284,7 @@ function HostPanel() {
                     </span>
                     <span className="flex-1 truncate text-gray-700 font-medium">{r.nickname}</span>
                     <span className="font-black text-blue-700">{r.total_points}점</span>
-                    <span className="text-xs text-gray-400 shrink-0">{r.correct_count}/{QUESTIONS.length}</span>
+                    <span className="text-xs text-gray-400 shrink-0">{r.correct_count}/{totalQ}</span>
                   </div>
                 ))}
               </div>
@@ -295,7 +320,7 @@ function HostPanel() {
               className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-black text-lg py-4 rounded-2xl transition-all"
             >
               {advancing ? '처리 중...' :
-                currentQ >= QUESTIONS.length ? '✅ 결과 보기' : `▶ 다음 문제 (${currentQ + 1}번)`}
+                currentQ >= totalQ ? '✅ 결과 보기' : `▶ 다음 문제 (${currentQ + 1}번)`}
             </button>
           )}
 

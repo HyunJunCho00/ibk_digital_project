@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Image from 'next/image'
 import { supabase, fetchCurrentRankings } from '@/lib/supabase'
-import { QUESTIONS, QUESTION_TIME_MS } from '@/lib/questions'
+import { QUESTIONS, SELECTED_COUNT, QUESTION_TIME_MS } from '@/lib/questions'
 import type { GameState, RankEntry } from '@/lib/supabase'
 
 const RADIUS = 70
@@ -37,10 +37,14 @@ export default function ScreenPage() {
     }
   }, [])
 
-  // 정답 공개 단계로 전환될 때 최종 랭킹 한 번 더 fetch
+  // 정답 공개 / 게임 종료 시 랭킹 fetch
   useEffect(() => {
     if (screenPhase === 'reveal') fetchRankings(currentQRef.current)
   }, [screenPhase, fetchRankings])
+
+  useEffect(() => {
+    if (gameState?.status === 'finished') fetchRankings()
+  }, [gameState?.status, fetchRankings])
 
   const startTimer = useCallback((questionStartedAt: string, qNum: number) => {
     clearTimer()
@@ -105,8 +109,11 @@ export default function ScreenPage() {
     return () => { clearTimer(); supabase.removeChannel(channel) }
   }, [startTimer, fetchRankings])
 
-  const q = gameState?.current_question && gameState.current_question >= 1
-    ? QUESTIONS[gameState.current_question - 1] : null
+  const questionIds = gameState?.question_ids ?? []
+  const totalQ = questionIds.length || SELECTED_COUNT
+  const q = gameState?.current_question && gameState.current_question >= 1 && questionIds.length > 0
+    ? QUESTIONS.find(q => q.id === questionIds[gameState.current_question - 1]) ?? null
+    : null
   const timerRatio = timeLeft / QUESTION_TIME_MS
   const strokeDashoffset = CIRCUMFERENCE * (1 - timerRatio)
   const timerColor = timerRatio > 0.5 ? '#4ade80' : timerRatio > 0.25 ? '#FFB300' : '#EF4444'
@@ -247,30 +254,23 @@ export default function ScreenPage() {
               </div>
             </div>
 
-            {/* 오른쪽: 랭킹 */}
-            <div className="w-[380px] shrink-0">
-              <p className="text-2xl font-black mb-4 text-center reveal-fade" style={{ color: '#FFB300' }}>
+            {/* 오른쪽: TOP 3 */}
+            <div className="w-[340px] shrink-0">
+              <p className="text-2xl font-black mb-5 text-center reveal-fade" style={{ color: '#FFB300' }}>
                 🏆 현재 순위
               </p>
-              <div className="flex flex-col gap-2">
-                {rankings.slice(0, 8).map((r, i) => (
+              <div className="flex flex-col gap-3">
+                {rankings.slice(0, 3).map((r, i) => (
                   <div
                     key={r.nickname}
-                    className="rank-slide flex items-center gap-4 px-5 py-3 rounded-2xl"
+                    className="rank-slide flex items-center gap-4 px-5 py-4 rounded-2xl"
                     style={{
-                      animationDelay: `${i * 80}ms`,
-                      background: i === 0
-                        ? 'rgba(255,215,0,0.2)'
-                        : i === 1 ? 'rgba(192,192,192,0.15)'
-                        : i === 2 ? 'rgba(205,127,50,0.15)'
-                        : 'rgba(255,255,255,0.07)',
-                      border: i < 3
-                        ? '1px solid rgba(255,255,255,0.25)'
-                        : '1px solid rgba(255,255,255,0.08)',
+                      animationDelay: `${i * 100}ms`,
+                      background: i === 0 ? 'rgba(255,215,0,0.2)' : i === 1 ? 'rgba(192,192,192,0.15)' : 'rgba(205,127,50,0.15)',
+                      border: `1px solid ${i === 0 ? 'rgba(255,215,0,0.4)' : i === 1 ? 'rgba(192,192,192,0.3)' : 'rgba(205,127,50,0.3)'}`,
                     }}>
-                    <span className="text-2xl w-8 text-center shrink-0">
-                      {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉'
-                        : <span className="text-white/50 text-base font-bold">{i + 1}</span>}
+                    <span className="text-3xl w-9 text-center shrink-0">
+                      {i === 0 ? '🥇' : i === 1 ? '🥈' : '🥉'}
                     </span>
                     <span className="flex-1 text-white font-bold text-xl truncate">{r.nickname}</span>
                     <span className={`font-black text-2xl shrink-0 ${i === 0 ? 'text-yellow-300' : 'text-white/80'}`}>
