@@ -97,16 +97,19 @@ function HostPanel() {
     return () => { supabase.removeChannel(channel) }
   }, [authorized, fetchAnswerStats])
 
+  async function handleGenerate() {
+    const ids = pickRandomIds()
+    await supabase.from('game_state').update({ question_ids: ids }).eq('id', 1)
+  }
+
   async function handleStart() {
     setAdvancing(true)
-    const questionIds = pickRandomIds()
     await supabase.from('answers').delete().not('id', 'is', null)
     await supabase.from('game_state').update({
       status: 'question',
       current_question: 1,
       question_started_at: new Date().toISOString(),
       answer_revealed: false,
-      question_ids: questionIds,
     }).eq('id', 1)
     setAdvancing(false)
   }
@@ -293,13 +296,42 @@ function HostPanel() {
 
           {/* 컨트롤 버튼 */}
           {gameState?.status === 'waiting' && (
-            <button
-              onClick={handleStart}
-              disabled={advancing || participantCount === 0}
-              className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white font-black text-xl py-4 rounded-2xl transition-all"
-            >
-              {advancing ? '시작 중...' : participantCount === 0 ? '참가자를 기다리는 중...' : `게임 시작! (${participantCount}명)`}
-            </button>
+            <div className="space-y-3">
+              {/* 문제 생성 */}
+              <button
+                onClick={handleGenerate}
+                className="w-full font-black text-lg py-3 rounded-2xl transition-all border-2 border-blue-400 text-blue-600 hover:bg-blue-50"
+              >
+                {gameState.question_ids?.length ? '🔀 문제 다시 생성' : '🎲 문제 생성'}
+              </button>
+
+              {/* 선택된 문제 미리보기 */}
+              {gameState.question_ids?.length ? (
+                <div className="bg-blue-50 rounded-xl p-3 text-sm space-y-1">
+                  {gameState.question_ids.map((id, i) => {
+                    const q = QUESTIONS.find(q => q.id === id)
+                    return q ? (
+                      <div key={id} className="flex items-start gap-2">
+                        <span className="font-bold text-blue-500 shrink-0">Q{i + 1}</span>
+                        <span className="text-gray-600 truncate">{q.question}</span>
+                        <span className={`shrink-0 font-black ${q.answer === 'O' ? 'text-green-600' : 'text-red-500'}`}>{q.answer}</span>
+                      </div>
+                    ) : null
+                  })}
+                </div>
+              ) : (
+                <p className="text-center text-gray-400 text-sm py-2">문제를 먼저 생성해주세요</p>
+              )}
+
+              {/* 게임 시작 */}
+              <button
+                onClick={handleStart}
+                disabled={advancing || participantCount === 0 || !gameState.question_ids?.length}
+                className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white font-black text-xl py-4 rounded-2xl transition-all"
+              >
+                {advancing ? '시작 중...' : participantCount === 0 ? '참가자를 기다리는 중...' : !gameState.question_ids?.length ? '문제를 먼저 생성하세요' : `▶ 게임 시작! (${participantCount}명)`}
+              </button>
+            </div>
           )}
 
           {gameState?.status === 'question' && !gameState.answer_revealed && (

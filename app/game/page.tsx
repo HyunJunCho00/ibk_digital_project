@@ -158,7 +158,8 @@ export default function GamePage() {
     if (answeredRef.current || phase !== 'question') return
     answeredRef.current = true
     const responseTimeMs = Math.max(0, Date.now() - questionStartRef.current)
-    const q = QUESTIONS[currentQuestion - 1]
+    const q = QUESTIONS.find(q => q.id === questionIds[currentQuestion - 1])
+    if (!q) return
     const isCorrect = choice === q.answer
     const pts = isCorrect ? calcPoints(responseTimeMs) : 0
     setSelected(choice)
@@ -168,6 +169,17 @@ export default function GamePage() {
       session_id: sessionId, nickname, question_number: currentQuestion,
       answer: choice, is_correct: isCorrect, response_time_ms: responseTimeMs, points: pts,
     })
+    // 서버 트리거가 재계산한 실제 점수로 동기화
+    const { data: actual } = await supabase.from('answers')
+      .select('points')
+      .eq('session_id', sessionId)
+      .eq('question_number', currentQuestion)
+      .single()
+    if (actual && actual.points !== pts) {
+      const diff = actual.points - pts
+      setLastResult(r => r ? { ...r, points: actual.points } : r)
+      if (isCorrect) setTotalScore(s => s + diff)
+    }
   }
 
   const totalQ = questionIds.length || SELECTED_COUNT
@@ -178,6 +190,7 @@ export default function GamePage() {
   const strokeDashoffset = CIRCUMFERENCE * (1 - timerRatio)
   const timerColor = timerRatio > 0.5 ? '#4ade80' : timerRatio > 0.25 ? '#FFB300' : '#EF4444'
   const myRank = rankings.findIndex((r) => r.nickname === nickname) + 1
+  const myTotalScore = myRank > 0 ? rankings[myRank - 1].total_points : totalScore
 
   const getMascot = () => {
     if (phase === 'waiting') return '/인사.png'
@@ -202,7 +215,7 @@ export default function GamePage() {
             <span>{currentQuestion}/{totalQ}</span>
             {phase === 'revealing' && (
               <>
-                <span className="font-bold" style={{ color: '#FFB300' }}>{totalScore}점</span>
+                <span className="font-bold" style={{ color: '#FFB300' }}>{myTotalScore}점</span>
                 {myRank > 0 && <span className="bg-white/10 px-2 py-0.5 rounded-full text-white font-bold">{myRank}위</span>}
               </>
             )}
@@ -387,7 +400,7 @@ export default function GamePage() {
                 </div>
                 <div className="text-right">
                   <p className="font-black" style={{ color: '#FFB300', fontSize: '2.5rem', lineHeight: 1 }}>{myRank}위</p>
-                  <p className="text-white/40 text-xs">{totalScore}점</p>
+                  <p className="text-white/40 text-xs">{myTotalScore}점</p>
                 </div>
               </div>
             )}
