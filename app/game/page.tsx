@@ -84,6 +84,8 @@ export default function GamePage() {
     setNickname(nick)
 
     async function init() {
+      // 대규모 동시 접속 시 DB 부하 분산 (최대 2초 랜덤 딜레이)
+      await new Promise(r => setTimeout(r, Math.random() * 2000))
       const { data } = await supabase.from('game_state').select('*').eq('id', 1).single()
       if (!data) return
       const gs = data as GameState
