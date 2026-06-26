@@ -19,6 +19,7 @@ export default function ScreenPage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const startRef = useRef<number>(0)
   const currentQRef = useRef<number>(0)
+  const rankDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const clearTimer = () => {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
@@ -36,6 +37,12 @@ export default function ScreenPage() {
       setAnswerCount(count ?? 0)
     }
   }, [])
+
+  // INSERT 폭탄 방지: 답변이 연속으로 들어올 때 500ms 디바운스로 DB 조회 횟수 제한
+  const debouncedFetchRankings = useCallback((qNum?: number) => {
+    if (rankDebounceRef.current) clearTimeout(rankDebounceRef.current)
+    rankDebounceRef.current = setTimeout(() => fetchRankings(qNum), 500)
+  }, [fetchRankings])
 
   // 정답 공개 / 게임 종료 시 랭킹 fetch
   useEffect(() => {
@@ -102,11 +109,15 @@ export default function ScreenPage() {
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'answers' }, (payload) => {
         setAnswerCount((c) => c + 1)
-        fetchRankings(payload.new.question_number)
+        debouncedFetchRankings(payload.new.question_number)
       })
       .subscribe()
 
-    return () => { clearTimer(); supabase.removeChannel(channel) }
+    return () => {
+      clearTimer()
+      if (rankDebounceRef.current) clearTimeout(rankDebounceRef.current)
+      supabase.removeChannel(channel)
+    }
   }, [startTimer, fetchRankings])
 
   const questionIds = gameState?.question_ids ?? []
